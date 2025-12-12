@@ -44,7 +44,7 @@ import { GoogleGenerativeAIFetchError } from '@google/generative-ai';
 import { v4 as uuidv4 } from 'uuid';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { environment } from '../../environments/environments';
-import { getVertexAI, getGenerativeModel } from 'firebase/vertexai-preview';
+import { getAI, getGenerativeModel, VertexAIBackend } from 'firebase/ai';
 
 type Priority = 'none' | 'low' | 'medium' | 'high';
 
@@ -87,7 +87,7 @@ export class TaskService {
   private firestore = inject(Firestore);
   private auth = inject(Auth);
 
-  private vertexAI = getVertexAI(getApp());
+  private vertexAI = getAI(getApp(), { backend: new VertexAIBackend() });
   // Caveat: the VertexAI model may take a while (~10s) to initialize after your
   // first call to GenerateContent(). You may see a PERMISSION_DENIED error before then.
   private prodModel = getGenerativeModel(this.vertexAI, MODEL_CONFIG);
@@ -197,7 +197,7 @@ export class TaskService {
       collection(this.firestore, 'todos'),
       where('priority', '!=', 'null')
     );
-    return collectionCount(taskQuery, { idField: 'id' });
+    return collectionCount(taskQuery);
   }
 
   loadSubtasks(maintaskId: string): Observable<Task[]> {
@@ -206,7 +206,7 @@ export class TaskService {
       where('parentId', '==', maintaskId),
       orderBy('order', 'asc')
     );
-    return collectionData(subtaskQuery, { idField: 'id' });
+    return collectionData(subtaskQuery, { idField: 'id' }) as Observable<Task[]>;
   }
 
   createTaskRef(id?: string) {
