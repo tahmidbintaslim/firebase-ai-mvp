@@ -33,7 +33,7 @@ advisories, and larger Angular bundle budgets.
 | `src/app/app.config.ts` | Firebase app, Auth and Firestore providers (App Check is commented out) |
 | `src/environments/environments.ts` | Firebase config and Gemini API key (placeholders in git) |
 | `src/environments/environments.ts.tmpl` | Template that Terraform renders into `environments.ts` |
-| `main.tf` | Terraform: enables the APIs, creates a Gemini API key with a 10 requests/min quota, a Firestore database, security rules and a Firebase web app, then writes `environments.ts`, `firestore.rules` and `.firebaserc` |
+| `main.tf` | Terraform: enables the APIs, creates a Gemini API key (limited to the Generative Language API, any referrer), caps the project at 10 Gemini generate requests per minute per model, and creates a Firestore database, security rules and a Firebase web app. It then writes `environments.ts`, `firestore.rules` and `.firebaserc` |
 | `prod.tf.example` | Terraform for Vertex AI in Firebase with App Check (not applied by default) |
 | `firestore.rules.tmpl`, `firestore.rules` | Security rules template and the last rendered copy |
 | `.idx/dev.nix` | Project IDX workspace config (runs Terraform and `pnpm install`) |
@@ -106,8 +106,8 @@ You can also start this workflow from the Firebase console in the
 _Build with Gemini_ section (look for the "Experiment with a Gemini sample app"
 banner).
 
-- To limit misuse of the Gemini API key, the workflow sets a quota of
-  10 requests per minute on it.
+- To limit misuse of the Gemini API key, the workflow caps the project's
+  Gemini API usage at 10 generate requests per minute per model.
 - The workflow creates a new IDX workspace. If you run out of workspace quota,
   delete an old workspace.
 
@@ -198,8 +198,14 @@ Firebase project as described below.
         view and delete your Gemini API key.
       - In the codebase, delete references to the Gemini API key:
         - the `google_apikeys_key` resource in `main.tf`
+        - the `gemini_api_key` entry in the `local_file.environment_ts`
+          resource in `main.tf`
         - `gemini_api_key` in `src/environments/environments.ts` and
           `src/environments/environments.ts.tmpl`
+        - in `src/app/services/task.service.ts`: the `@google/generative-ai`
+          imports, `genAI`, `experimentModel` and the
+          `GoogleGenerativeAIFetchError` check in `handleError` (you can then
+          remove `@google/generative-ai` from `package.json`)
 
     - If you no longer use the Google AI Gemini API, disable it in your project
       and delete references to it in the codebase:
@@ -258,5 +264,6 @@ To fix it:
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE). The source files carry Google LLC
+Apache License 2.0. See [LICENSE](LICENSE). Many of the source files (for
+example `main.tf`, `task.service.ts` and `app.component.*`) carry Google LLC
 copyright headers from the original sample.
