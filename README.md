@@ -1,97 +1,122 @@
-# "Planning with the Gemini API" - a Firebase AI sample app
+# Planning with the Gemini API (Firebase AI sample)
 
-Welcome to the _Planning with the Gemini API_ sample app, an AI-powered web app
-for to-do lists! It's an [Angular](https://angular.io/) app built using the
-Gemini API and Firebase.
+This repository is a copy of Google's Firebase sample app
+[_Planning with the Gemini API_](https://github.com/FirebaseExtended/make-it-so-angular)
+(the "Make It So" Angular sample). It is an [Angular](https://angular.dev/) web
+app that sends a text prompt and a sample image to the
+[Gemini API](https://ai.google.dev/gemini-api), gets back a task title with a
+list of subtasks, and saves the tasks to
+[Firestore](https://firebase.google.com/products/firestore). Users are signed
+in with Firebase
+[anonymous authentication](https://firebase.google.com/docs/auth/web/anonymous-auth).
 
-The [Gemini API](https://ai.google.dev/gemini-api) gives you access to Google's latest
-generative AI models – the Gemini family of multimodal models.
-This _Planning with the Gemini API_ web app calls the Gemini API to generate a task list
-from either text or an image provided by the end user.
+The application code is Google's. The changes made in this copy are
+maintenance only: upgrades to Angular 21 and Firebase 12, the move from
+`firebase/vertexai-preview` to `firebase/ai`, npm `overrides` for security
+advisories, and larger Angular bundle budgets.
 
-The backend of _Planning with the Gemini API_ is powered by
-[Firebase](https://firebase.google.com/), which is Google's platform for
-building fullstack multi-platform apps. This app uses
-[Firebase Authentication](https://firebase.google.com/products/auth) for signing-in
-and authorizing end users. It also uses
-[Firestore](https://firebase.google.com/products/firestore) – a NoSQL realtime database –
-to store the to-do list items.
+> [!CAUTION]
+> **In its default state, this sample app is for experimentation and prototyping only.**
+> It calls the Gemini API with the
+> [Google AI SDK for JavaScript](https://ai.google.dev/gemini-api/docs/quickstart?lang=web)
+> directly from the browser, so the Gemini API key ships in the client bundle.
+> Anyone who loads a deployed copy can read the key. Before deploying, follow
+> [Migrate to use Vertex AI in Firebase](#migrate-to-use-vertex-ai-in-firebase).
 
-> [!CAUTION] > **In its DEFAULT state, this sample app is for _EXPERIMENTATION and PROTOTYPING ONLY_.**
-> It uses the [Google AI SDK for JavaScript](https://ai.google.dev/gemini-api/docs/quickstart?lang=web)
-> directly from the client-side which means that you risk potentially exposing your
-> Gemini API key to malicious actors if you deploy this app.
->
-> If you want to deploy this sample app or use it as a base for a production app,
-> **we strongly recommend that you
-> [migrate to use the Vertex AI in Firebase SDK](https://github.com/FirebaseExtended/make-it-so-angular/main/README.md#migrate-to-use-vertex-ai-in-firebase),
-> which offers security options against unauthorized clients.**
+## What's in the repo
+
+| Path | Contents |
+| --- | --- |
+| `src/app/app.component.*` | Main screen: image picker, prompt, Go / Save / Reset, task list |
+| `src/app/task.component.*`, `checkboximage.component.*`, `roundbutton.component.*` | UI components |
+| `src/app/services/task.service.ts` | Gemini calls, anonymous sign-in, Firestore reads and writes |
+| `src/app/app.config.ts` | Firebase app, Auth and Firestore providers (App Check is commented out) |
+| `src/environments/environments.ts` | Firebase config and Gemini API key (placeholders in git) |
+| `src/environments/environments.ts.tmpl` | Template that Terraform renders into `environments.ts` |
+| `main.tf` | Terraform: enables the APIs, creates a Gemini API key (limited to the Generative Language API, any referrer), caps the project at 10 Gemini generate requests per minute per model, and creates a Firestore database, security rules and a Firebase web app. It then writes `environments.ts`, `firestore.rules` and `.firebaserc` |
+| `prod.tf.example` | Terraform for Vertex AI in Firebase with App Check (not applied by default) |
+| `firestore.rules.tmpl`, `firestore.rules` | Security rules template and the last rendered copy |
+| `.idx/dev.nix` | Project IDX workspace config (runs Terraform and `pnpm install`) |
+| `firebase.json`, `.firebaserc` | Firebase Hosting config, serving `dist/firebase-ai-angular/browser` |
+| `src/**/*.spec.ts` | Karma/Jasmine unit tests |
+
+## Status
+
+Checked on 2026-10-23:
+
+- `pnpm install --frozen-lockfile` and `pnpm exec ng build` succeed. The build
+  prints warnings for unused component imports and for an initial bundle of
+  1.32 MB against the 1 MB warning budget.
+- `npm ci` fails because `package-lock.json` is out of sync with
+  `package.json`. Use pnpm (`angular.json` sets the Angular CLI to pnpm).
+- `MODEL_CONFIG` in `task.service.ts` names `gemini-1.5-flash`. Google has
+  retired the Gemini 1.5 models, so task generation is expected to fail until
+  the model name is updated. The `@google/generative-ai` SDK used for the
+  experimental path is deprecated in favor of `@google/genai`.
+- The committed `firestore.rules` expired on 2024-12-20. Terraform renders a
+  new copy with a 30-day expiry on each `terraform apply`.
+- All signed-in users share one `todos` collection. The queries do not filter
+  by owner, and the rules let any signed-in user read and write every document.
+- The unit tests (`pnpm test`, needs Chrome) were not run for this check.
+- There is no CI workflow in this repo.
 
 ## Explore the app's codebase
 
-- In `src/environments/environments.ts`, you can find important configuration values:
+- In `src/environments/environments.ts`, you can find the configuration values:
 
-  - Within `firebase`, find the values needed to connect your app to Firebase
+  - Within `firebase`, the values needed to connect your app to Firebase
     (most importantly `apiKey`, `projectId`, and `appId`).
-  - Find your Gemini API key (`gemini_api_key`).
+  - Your Gemini API key (`gemini_api_key`).
 
-  Note that if you
-  [run the sample app in IDX](https://github.com/FirebaseExtended/make-it-so-angular/main/README.md#set-up-and-run-the-app),
-  then these config values will be automatically populated into the file for you.
+  If you run the app in IDX, Terraform fills in this file for you. After that
+  the file holds real keys, so do not commit it.
 
-- In `src/app/services/task.service.ts`, you can explore how to make a basic call to
-  the Gemini API, including:
+- In `src/app/services/task.service.ts`, you can see how to make a basic call to
+  the Gemini API:
 
-  - Importing the Google AI package: `google/generative-ai`.
+  - Importing the Google AI package: `@google/generative-ai`.
   - Initializing the Google AI service and the generative model.
-  - Calling `generateContent` to send the request to Gemini with the provided prompt
-    (and image, if provided).
+  - Calling `generateContent` with the prompt and the selected image.
 
-- In `src/app/app.config.ts` and `src/app/services/task.service.ts`, you can explore
-  how to use Firebase, including:
+- In `src/app/app.config.ts` and `src/app/services/task.service.ts`, you can see
+  how the app uses Firebase:
 
-  - Using Firebase Authentication's
+  - Firebase Authentication's
     [anonymous authentication method](https://firebase.google.com/docs/auth/web/anonymous-auth)
     to create an authenticated user account.
-  - Using Firestore to write and read to-do tasks and subtasks generated by Gemini.
+  - Firestore to write and read the tasks and subtasks generated by Gemini.
 
 ## Set up and run the app
 
-You can either run the sample app in IDX (recommended) or locally.
+You can run the app in IDX or locally.
 
-### Option 1: Run in IDX _(recommended)_
+### Option 1: Run in IDX
 
-This _Planning with the Gemini API_ web app is best experienced by running it in
-[IDX](https://idx.dev/), which is Google's browser-based workspace for
-building, shipping, and managing full-stack multiplatform apps.
+Project IDX is now part of [Firebase Studio](https://firebase.studio/). The
+links in this section come from Google's original sample and start a workspace
+from Google's template, not from this repository.
 
-Firebase provides a custom workflow using IDX to help you quickly experiment with the sample app.
-This workflow automatically sets up a new Firebase project with Authentication and Firestore
-enabled, opens the sample app in IDX, and sets up the app to use Firebase and the Gemini API.
-The project and app are yours to experiment with and explore how Gemini works.
+Firebase provides a workflow that sets up a new Firebase project with
+Authentication and Firestore enabled, opens the sample app in IDX, and
+configures the app to use Firebase and the Gemini API.
 
-[GET STARTED WITH THE SAMPLE APP IN IDX](https://console.firebase.google.com/?idxSampleProjectTemplateId=gemini&dlAction=IdxSampleProject)
+[Get started with the sample app in IDX](https://console.firebase.google.com/?idxSampleProjectTemplateId=gemini&dlAction=IdxSampleProject)
 
-You can also kick-off this custom workflow from the Firebase console in the
-_Build with Gemini_ section (find the "Experiment with a Gemini sample app" banner).
+You can also start this workflow from the Firebase console in the
+_Build with Gemini_ section (look for the "Experiment with a Gemini sample app"
+banner).
 
-Here's some additional information about this custom workflow:
-
-- To somewhat protect your Gemini API key, the workflow has imposed a quota limit on the
-  API key of 10 RPM.
-- This workflow creates a new IDX workspace. If you run out of workspace quota, go to
-  [idx.google.com](idx.google.com) to delete an old workspace.
+- To limit misuse of the Gemini API key, the workflow caps the project's
+  Gemini API usage at 10 generate requests per minute per model.
+- The workflow creates a new IDX workspace. If you run out of workspace quota,
+  delete an old workspace.
 
 ### Option 2: Run locally
 
-You can also run this _Planning with the Gemini API_ web app locally. You'll just need
-to complete some manual setup steps.
-
 #### Prerequisites
 
-- Node.js v20+
-- npm v10+
-- Angular CLI 18+
+- Node.js 20.19+, 22.12+ or 24+ (required by Angular 21)
+- pnpm (the Angular CLI is a dev dependency, run it with `pnpm exec ng`)
 
 #### Setup instructions
 
@@ -104,83 +129,91 @@ to complete some manual setup steps.
     in your new project.
     c. Create a new Firebase web app in your new project.
     You can skip setting up Firebase Hosting.
-    d. Copy your Firebase config object, and replace the placeholder values in the
-    `src/environments/environments.ts` file of the sample app.
+    d. Copy your Firebase config object, and replace the placeholder values in
+    `src/environments/environments.ts`.
 
 2.  Set up the Gemini API:
     a. [Get a Gemini API key](https://aistudio.google.com/app/apikey) in Google AI Studio.
     Use the Firebase project you just created.
-    b. Add your Gemini API key into the `src/environments/environments.ts` file of the sample app.
+    b. Add your Gemini API key to `src/environments/environments.ts`.
 
-3.  Run `npm install` to install the app's dependencies.
+3.  Run `pnpm install` to install the dependencies.
 
 4.  Serve the app:
-    a. Run `ng serve` to start the Angular development server.
-    b. Open your browser and navigate to `http://localhost:4200`.
+    a. Run `pnpm start` (runs `ng serve`).
+    b. Open `http://localhost:4200` in your browser.
 
-## Interact with the app
+To build for Firebase Hosting, run `pnpm build`. The output goes to
+`dist/firebase-ai-angular/browser`, the folder `firebase.json` serves.
 
-1.  Create a new task.\
-    Click the "New task" button on the left to initiate the creation of a new task.
-    Gemini suggests a task title. Edit the title as desired.
+## Use the app
 
-2.  Generate subtasks.\
-    Gemini can generate a list of subtasks based either on your title and/or an uploaded image.
-
-3.  Save the task to add it to the dashboard of to-do tasks.
+1.  When the page loads, the app generates a first task from the default prompt.
+2.  Pick one of the two sample images (a travel location or a room). Each one
+    sets a matching default prompt.
+3.  Edit the prompt and click **Go**. Gemini returns a task title and a list of
+    subtasks, based on the prompt and the selected image.
+4.  Click **Save** to add the task to the list, or **Reset** to start over.
+5.  Check off subtasks or delete a task from the list.
 
 ## Migrate to use Vertex AI in Firebase
 
-**In its DEFAULT state, this sample app is for _EXPERIMENTATION and PROTOTYPING ONLY_.**
-It uses the [Google AI SDK for JavaScript](https://ai.google.dev/gemini-api/docs/quickstart?lang=web)
-directly from the client-side which means that you risk potentially exposing your Gemini API key
-to malicious actors if you deploy this app.
+Vertex AI in Firebase is now called
+[Firebase AI Logic](https://firebase.google.com/docs/ai-logic). It offers
+App Check protection against unauthorized clients, which the client-side
+Gemini API key does not.
 
-If you want to deploy this sample app or use it as a base for a production app,
-**we strongly recommend that you migrate to use the
-[Vertex AI in Firebase SDK](https://firebase.google.com/docs/vertex-ai), which offers
-security options against unauthorized clients.** The sample app's codebase is already set up
-to use the Vertex AI in Firebase SDK, and you just need to do a couple extra steps to set up
-your Firebase project (as described below).
+The code already creates a Vertex AI model (`prodModel` in `task.service.ts`,
+using `firebase/ai`), but `generateTask` calls `experimentModel` (the Google AI
+SDK). To switch, make `generateTask` call `this.prodModel`, then set up your
+Firebase project as described below.
 
 > [!NOTE]
 > The sample app includes a Terraform config file ([`prod.tf.example`](prod.tf.example))
-> that sets up Vertex AI in Firebase, including helping you set up billing,
-> enabling the required APIs,
-> and setting up [Firebase App Check](https://firebase.google.com/products/app-check).
+> that sets up Vertex AI in Firebase, including billing, the required APIs,
+> and [Firebase App Check](https://firebase.google.com/products/app-check).
 
 1.  In the Firebase console, go to the
-    [**Build with Gemini** page](https://console.firebase.google.com/project/_/genai),
-    and then click the _Vertex AI in Firebase_ card to launch a workflow that helps you
-    do the following tasks (if they're not already done):
+    [**Build with Gemini** page](https://console.firebase.google.com/project/_/genai)
+    and click the _Vertex AI in Firebase_ card to launch a workflow that does the
+    following (if not already done):
 
-    - Upgrade your project to use the
+    - Upgrade your project to the
       [pay-as-you-go Blaze pricing plan](https://console.firebase.google.com/project/_/overview?purchaseBillingPlan=metered).
-    - Enable the following two APIs for your project:\
+    - Enable the
       [Vertex AI API](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com?project=_)
-      and
-      [Firebase ML API](https://console.cloud.google.com/apis/library/firebaseml.googleapis.com?project=_)
+      and the
+      [Firebase ML API](https://console.cloud.google.com/apis/library/firebaseml.googleapis.com?project=_).
 
-2.  As soon as you start seriously developing your app,
-    [set up Firebase App Check](https://firebase.google.com/docs/vertex-ai/app-check)
-    to protect your app from abuse by unauthorized clients.
+2.  [Set up Firebase App Check](https://firebase.google.com/docs/vertex-ai/app-check)
+    to protect your app from abuse by unauthorized clients. In
+    `src/app/app.config.ts`, uncomment the `provideAppCheck` block and set your
+    reCAPTCHA Enterprise site key.
 
-3.  Follow security best practices by cleaning up your Firebase project and sample app:
+3.  Clean up your Firebase project and the app:
 
-    - If you're no longer using your Gemini API key, then delete it.
+    - If you no longer use your Gemini API key, delete it.
 
       - In the [**API keys** section of Google AI Studio](https://aistudio.google.com/app/apikey),
         view and delete your Gemini API key.
-      - In the sample app's codebase, delete references to the Gemini API key in the following places:
-        - `google_apikeys_key` resource entry in `main.tf`
-        - `gemini_api_key` in both `src/environments/environments.ts` and `src/environments/environments.ts.tmpl`
+      - In the codebase, delete references to the Gemini API key:
+        - the `google_apikeys_key` resource in `main.tf`
+        - the `gemini_api_key` entry in the `local_file.environment_ts`
+          resource in `main.tf`
+        - `gemini_api_key` in `src/environments/environments.ts` and
+          `src/environments/environments.ts.tmpl`
+        - in `src/app/services/task.service.ts`: the `@google/generative-ai`
+          imports, `genAI`, `experimentModel` and the
+          `GoogleGenerativeAIFetchError` check in `handleError` (you can then
+          remove `@google/generative-ai` from `package.json`)
 
-    - If you're no longer using the Google AI Gemini API, then disable it in your project
-      and delete references to it in your sample app's codebase:
-      - Disable the API in the Google Cloud console:
+    - If you no longer use the Google AI Gemini API, disable it in your project
+      and delete references to it in the codebase:
+      - Disable
         [generativelanguage.googleapis.com](https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com?project=_)
+        in the Google Cloud console.
       - Delete references to `generativelanguage.googleapis.com`, including the
-        `google_service_usage_consumer_quota_override` resource entry in `main.tf`.
+        `google_service_usage_consumer_quota_override` resource in `main.tf`.
 
 ## Troubleshooting
 
@@ -189,42 +222,48 @@ Error when reading or editing Project "<project-id>": Get "https://cloudresource
 compute: Received 500
 ```
 
-This error happens because authentication has timed-out. Here's how to resolve it:
+Authentication has timed out. To fix it:
 
-1.  In Project IDX, open a new terminal.
-2.  In the terminal, run `terraform apply --auto-approve`, and then click continue when prompted to log in.
+1.  In IDX, open a new terminal.
+2.  Run `terraform apply --auto-approve`, and click continue when prompted to log in.
 3.  Wait until the command succeeds.
 4.  Reload the web preview, if necessary.
 
 ```
-Error loading Gemini API key. Please rerun Terraform with terraform apply --auto-approve"
+Error loading Gemini API key. Please rerun Terraform with `terraform apply --auto-approve`
 ```
 
-This error happens because Terraform failed to provision some resources
-during initialization, such as API keys. Here's how to resolve it:
+Terraform failed to create some resources during setup, such as API keys.
+To fix it:
 
-1.  In Project IDX, open a new terminal.
-2.  In the terminal, run `terraform apply --auto-approve`, and then click
-    continue when prompted to log in.
+1.  In IDX, open a new terminal.
+2.  Run `terraform apply --auto-approve`, and click continue when prompted to log in.
 3.  Wait until the command succeeds.
 4.  Reload the web preview, if necessary.
 
 ```
-Check Firestore permissions in Firebase Console: link
+Error communicating with Firestore. Please rerun Terraform with `terraform apply --auto-approve`
 ```
 
-This error happens because
 [Firestore security rules](https://firebase.google.com/docs/firestore/security/get-started)
-are blocking requests from your app. Here's how to resolve it:
+are blocking requests from the app, usually because the rules have expired.
+To fix it:
 
-1.  Go to the Firebase console using the link provided in the error message.
-2.  Check that the security rules are what you expect. In particular,
-    `timestamp.date` should be in the future.
-3.  Reload the web preview, if necessary.
+1.  Run `terraform apply --auto-approve` to render rules with a new expiry date,
+    or check the rules in the Firebase console. `timestamp.date` must be in
+    the future.
+2.  Reload the web preview, if necessary.
 
 ## Docs
 
 - [Firebase Support](https://firebase.google.com/support)
-- [Google AI Gemini API documentation](https://ai.google.dev/gemini-api/docs/quickstart?lang=web)
+- [Gemini API documentation](https://ai.google.dev/gemini-api/docs/quickstart?lang=web)
   (for experimentation and prototyping)
-- [Vertex AI in Firebase documentation](https://firebase.google.com/docs/vertex-ai) (for production apps)
+- [Firebase AI Logic documentation](https://firebase.google.com/docs/ai-logic)
+  (for production apps)
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE). Many of the source files (for
+example `main.tf`, `task.service.ts` and `app.component.*`) carry Google LLC
+copyright headers from the original sample.
