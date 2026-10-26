@@ -47,8 +47,8 @@ Checked on 2026-10-23:
 - `pnpm install --frozen-lockfile` and `pnpm exec ng build` succeed. The build
   prints warnings for unused component imports and for an initial bundle of
   1.32 MB against the 1 MB warning budget.
-- `npm ci` fails because `package-lock.json` is out of sync with
-  `package.json`. Use pnpm (`angular.json` sets the Angular CLI to pnpm).
+- pnpm is the package manager (`angular.json` sets it). The stale
+  `package-lock.json` was removed, so use `pnpm install`, not npm.
 - `MODEL_CONFIG` in `task.service.ts` names `gemini-1.5-flash`. Google has
   retired the Gemini 1.5 models, so task generation is expected to fail until
   the model name is updated. The `@google/generative-ai` SDK used for the
@@ -58,7 +58,8 @@ Checked on 2026-10-23:
 - All signed-in users share one `todos` collection. The queries do not filter
   by owner, and the rules let any signed-in user read and write every document.
 - The unit tests (`pnpm test`, needs Chrome) were not run for this check.
-- There is no CI workflow in this repo.
+- CI (`.github/workflows/ci.yml`) runs `pnpm install --frozen-lockfile` and
+  `pnpm exec ng build` on every push to `main` and every pull request.
 
 ## Explore the app's codebase
 
